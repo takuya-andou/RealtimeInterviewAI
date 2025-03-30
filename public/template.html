@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>AI通話サービス</title>
+  <style>
+    /* (既存のスタイルはそのまま) */
+    body {
+      font-family: "Hiragino Sans", "Yu Gothic", sans-serif;
+      margin: 0;
+      padding: 0;
+      background: linear-gradient(120deg, #c9e9ff, #fce0fc);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding-bottom: 50px; /* 下部にスペースを追加 */
+    }
+    .container {
+      background: rgba(255, 255, 255, 0.8);
+      border-radius: 16px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+      width: 90%;
+      max-width: 1400px;
+      margin-top: 40px;
+      padding: 30px;
+      box-sizing: border-box;
+    }
+    h1 { margin-top: 0; text-align: center; font-weight: 600; color: #333; }
+    button { padding: 12px 24px; margin: 8px; font-size: 16px; font-weight: bold; border: none; border-radius: 24px; cursor: pointer; transition: all 0.2s ease; background: #5768f3; color: #fff; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2); }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    button:hover:not(:disabled) { opacity: 0.8; }
+    button.active-call:disabled { opacity: 1; background-color: #ccc; }
+    .active-call { color: #f33; }
+    audio { display: block; margin-top: 20px; width: 100%; }
+    .config-section { margin-top: 20px; }
+    .config-section label { display: block; margin-bottom: 8px; font-weight: bold; color: #555; }
+    #prompt { width: calc(100% - 24px); padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 8px; resize: vertical; height: 120px; box-sizing: border-box; }
+    #modelSelect, #voiceSelect { width: 100%; padding: 10px; font-size: 16px; border-radius: 8px; border: 1px solid #ccc; box-sizing: border-box; margin-top: 5px; }
+    #hindsightSheet { width: calc(100% - 24px); padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 8px; resize: vertical; height: 120px; box-sizing: border-box; background-color: #ffffff; }
+
+    /* --- 新しいスタイル --- */
+    .transcript-container {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 25px;
+        gap: 20px; /* 列間のスペース */
+    }
+    .transcript-box {
+        flex: 1; /* 等幅に分割 */
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 15px;
+        background-color: #f9f9f9;
+        height: 200px; /* 高さを指定 */
+        overflow-y: auto; /* スクロール可能に */
+        box-shadow: inset 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .transcript-box h3 {
+        margin-top: 0;
+        margin-bottom: 10px;
+        font-size: 1em;
+        color: #555;
+        border-bottom: 1px solid #eee;
+        padding-bottom: 5px;
+    }
+    .transcript-box p {
+        margin: 0 0 5px 0;
+        font-size: 0.95em;
+        line-height: 1.4;
+    }
+    .transcript-box .speaker-indicator {
+        font-style: italic;
+        color: #888;
+        font-size: 0.8em;
+        margin-bottom: 8px;
+        display: block; /* ブロック要素にして改行させる */
+    }
+    #summaryArea {
+        margin-top: 25px;
+        border: 1px solid #aec6cf; /* 少し目立つ色 */
+        border-radius: 8px;
+        padding: 15px;
+        background-color: #e7f3f8; /* 薄い青系の背景 */
+        display: none; /* 初期状態は非表示 */
+    }
+    #summaryArea h3 {
+        margin-top: 0;
+        color: #1f6d8f;
+    }
+    #summaryContent {
+        white-space: pre-wrap; /* 改行を保持 */
+        font-size: 0.95em;
+        line-height: 1.5;
+    }
+    /* --- ここまで新しいスタイル --- */
+
+    .footer-space { height: 40px; }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h1>AI通話サービス</h1>
+
+    <button id="startCall">開始</button>
+    <button id="endCall" style="display: none;">通話終了</button>
+
+    <audio id="remoteAudio" autoplay></audio>
+
+    <div class="transcript-container">
+      <div id="userTranscriptBox" class="transcript-box">
+        <h3>あなたの発話</h3>
+        <span id="userSpeakerIndicator" class="speaker-indicator" style="display: none;">あなたが話しています...</span>
+        <div id="userTranscriptContent"></div>
+      </div>
+      <div id="aiTranscriptBox" class="transcript-box">
+        <h3>AIの応答</h3>
+        <span id="aiSpeakerIndicator" class="speaker-indicator" style="display: none;">AIが応答中...</span>
+        <div id="aiTranscriptContent"></div>
+      </div>
+    </div>
+
+    <div id="summaryArea">
+      <h3>会話の要約</h3>
+      <p id="summaryContent">ここに要約が表示されます...</p>
+    </div>
+
+    <div id="promptSection" class="config-section">
+      <label for="prompt">プロンプト:</label>
+      <textarea id="prompt" placeholder="AIへの指示を入力してください"></textarea>
+    </div>
+
+    <div id="hindsightSection" class="config-section">
+      <label for="hindsightSheet">ヒヤリング項目:</label>
+      <textarea id="hindsightSheet" placeholder="最終的にまとめたい項目を記載してください">- 現在の業務内容・職場環境
+- 転職を考えた動機・背景
+- 希望するキャリアパスと目標
+- これまでの経験・スキル、強み
+- 希望する職種、業界、勤務地、給与などの条件
+- 転職活動の進捗状況
+- 転職エージェントに求めるサポート内容
+- 転職に対する不安や懸念事項</textarea>
+    </div>
+
+    <div id="modelSelectSection" class="config-section">
+      <label for="modelSelect">モデル:</label>
+      <select id="modelSelect">
+        <option value="gpt-4o-realtime-preview-2024-12-17">4o</option>
+        <option value="gpt-4o-mini-realtime-preview-2024-12-17">4o-mini</option>
+      </select>
+    </div>
+
+    <div id="voiceSelectSection" class="config-section">
+        <label for="voiceSelect">音声:</label>
+        <select id="voiceSelect">
+          <option value="alloy">alloy</option>
+          <option value="ash">ash</option>
+          <option value="ballad">ballad</option>
+          <option value="coral">coral</option>
+          <option value="echo">echo</option>
+          <option value="sage">sage</option>
+          <option value="shimmer">shimmer</option>
+          <option value="verse">verse</option>
+        </select>
+    </div>
+
+    <div class="footer-space"></div>
+  </div>
+
+  <script>
+    // --- DOM Element References ---
+    const startButton = document.getElementById('startCall');
+    const endButton = document.getElementById('endCall');
+    const remoteAudio = document.getElementById('remoteAudio');
+    const promptInput = document.getElementById('prompt');
+    const modelSelect = document.getElementById('modelSelect');
+    const voiceSelect = document.getElementById('voiceSelect');
+    const userTranscriptContent = document.getElementById('userTranscriptContent');
+    const aiTranscriptContent = document.getElementById('aiTranscriptContent');
+    const userSpeakerIndicator = document.getElementById('userSpeakerIndicator');
+    const aiSpeakerIndicator = document.getElementById('aiSpeakerIndicator');
+    const summaryArea = document.getElementById('summaryArea');
+    const summaryContent = document.getElementById('summaryContent');
+    // Box要素も取得 (スクロール用)
+    const userTranscriptBox = document.getElementById('userTranscriptBox');
+    const aiTranscriptBox = document.getElementById('aiTranscriptBox');
+
+
+    // --- Default Values ---
+    const DEFAULT_PROMPT = `あなたは転職エージェントとして振る舞う対話AIです。これから、求職者とのカジュアルな面談を通して、転職に関する背景や現状、希望条件、スキル、そして不安などを丁寧にヒアリングし、最適なサポートにつなげるための情報収集を行ってください。
+
+【目的】
+・求職者の現状や転職理由、将来のキャリアビジョン、スキル、希望条件、進捗状況、不安点などを把握する
+・カジュアルでリラックスした雰囲気を保ちつつ、プロフェッショナルな視点で具体的な情報を引き出す
+
+【質問項目】
+1. 現在の状況と転職の動機  
+　- 現在の業務内容、職場環境、転職を考えた背景や理由、現状で感じている課題などを尋ねる
+2. 希望するキャリア像と目標  
+　- 将来的にどのようなキャリアアップや成長を望んでいるか、具体的なビジョンを確認する
+3. スキル・経験と強み  
+　- これまでの経験、得意分野、転職先で活かせるスキルや実績、個人の強みについて詳しく聞く
+4. 希望する職種や業界、勤務地、その他条件  
+　- 興味のある業界・職種、希望勤務地、勤務形態、給与など、転職条件の優先順位を明確にする
+5. 転職活動の進捗とサポートニーズ  
+　- 現在進行中の転職活動の状況、応募中の企業や面接経験、エージェントに求めるサポート内容を確認する
+6. 不安点や懸念事項  
+　- 転職に対する不安や疑問、改善したい点について尋ね、求職者の悩みを整理する
+
+【会話の方針】
+・フレンドリーかつプロフェッショナルな口調で、リラックスした雰囲気を作る  
+・オープンクエスチョンを用い、求職者が自由に意見を述べられるようにする  
+・共感と肯定的なフィードバックを交えながら、丁寧にヒアリングを進める  
+・求職者の回答に基づき柔軟に会話を進め、必要に応じて話題の深掘りや追加質問を行う  
+・対話の中で、今後の転職活動や次のステップについても軽く触れる
+
+【初回の対話例】
+「はじめまして。転職エージェントの[あんどう]です。まず、現在のお仕事の内容や転職を考えたきっかけについてお聞かせいただけますか？」
+
+上記の指針に沿って、対話を進めてください。
+`;
+    const DEFAULT_MODEL = "gpt-4o-mini-realtime-preview-2024-12-17";
+    const DEFAULT_VOICE = "alloy";
+
+    // --- State Variables ---
+    let pc; // RTCPeerConnection
+    let dataChannel;
+    let localStream;
+    let summaryRequested = false; // 要約リクエスト中フラグ
+    let currentUserParagraph = null; // 現在のユーザー発話用 <p> 要素
+    let currentAiParagraph = null;   // 現在のAI応答用 <p> 要素
+
+
+    // --- Initialization ---
+    window.addEventListener('DOMContentLoaded', () => {
+      promptInput.value = DEFAULT_PROMPT;
+      modelSelect.value = DEFAULT_MODEL;
+      voiceSelect.value = DEFAULT_VOICE;
+    });
+
+    // --- Logging Functions ---
+    function log(message) { console.log(`[INFO] ${message}`); }
+    function logError(message, error) { console.error(`[ERROR] ${message}`, error); }
+    function logEvent(direction, eventData) { console.log(`[${direction}] Event: ${eventData.type}`, eventData); } // 詳細ログ
+
+    // --- UI Update Functions ---
+    // 指定された要素のスクロールを一番下に移動する関数
+    function scrollToBottom(element) {
+        // スクロール可能な親要素をスクロールさせる
+        if (element && element.parentElement) {
+             // 少し待ってからスクロールすると、要素のレンダリング後に実行されやすい
+             setTimeout(() => {
+                element.parentElement.scrollTop = element.parentElement.scrollHeight;
+             }, 0);
+        }
+    }
+
+    // 文字起こしと要約エリアをクリアする関数
+    function clearTranscripts() {
+        userTranscriptContent.innerHTML = '';
+        aiTranscriptContent.innerHTML = '';
+        currentUserParagraph = null; // 参照をリセット
+        currentAiParagraph = null;  // 参照をリセット
+        summaryArea.style.display = 'none'; // 要約エリアも隠す
+        summaryContent.textContent = 'ここに要約が表示されます...';
+        userSpeakerIndicator.style.display = 'none';
+        aiSpeakerIndicator.style.display = 'none';
+    }
+
+    // --- WebRTC and API Interaction ---
+    async function startCall() {
+      log('通話開始処理を開始します。');
+      startButton.textContent = '開始中...';
+      startButton.disabled = true;
+      endButton.disabled = true;
+      summaryRequested = false;
+      clearTranscripts(); // 開始時にクリア
+
+      if (pc) {
+        log('既存のPeerConnectionを閉じています...');
+        await endCallCleanup(); // 非同期である必要はないが念のため
+      }
+
+      try {
+        // --- 1. Get Ephemeral Key ---
+        log('エフェメラルAPIキーを取得中...');
+        const userPrompt = promptInput.value || DEFAULT_PROMPT;
+        const selectedModel = modelSelect.value;
+        const selectedVoice = voiceSelect.value;
+
+        // プロンプト（指示）を session.update で送る方式に変更も検討
+        // ここでは初期接続時のパラメータとして voice と model を指定
+        const tokenResponse = await fetch('/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          // 初期セッションパラメータ (プロンプトは後で session.update で送るか、response.create で指定)
+          body: JSON.stringify({ voice: selectedVoice, model: selectedModel })
+        });
+
+        if (!tokenResponse.ok) {
+          const errorData = await tokenResponse.json();
+          throw new Error(`エフェメラルキー取得失敗: ${errorData.error?.message || tokenResponse.statusText}`);
+        }
+        const data = await tokenResponse.json();
+        const EPHEMERAL_KEY = data.client_secret?.value;
+        if (!EPHEMERAL_KEY) throw new Error("サーバーから有効なエフェメラルキーが返されませんでした。");
+        log('エフェメラルAPIキーを取得しました。');
+
+        // --- 2. Setup PeerConnection ---
+        pc = new RTCPeerConnection();
+        log('RTCPeerConnectionを作成しました。');
+
+        pc.ontrack = event => {
+          log('リモート音声ストリームを受信しました。');
+          if (event.streams && event.streams[0]) {
+            remoteAudio.srcObject = event.streams[0];
+            remoteAudio.play().catch(e => logError('音声の自動再生に失敗しました:', e));
+          } else { logError('受信したトラックにストリームが含まれていません。'); }
+        };
+
+        pc.oniceconnectionstatechange = () => log(`ICE接続状態: ${pc.iceConnectionState}`);
+        pc.onconnectionstatechange = () => {
+          log(`接続状態: ${pc.connectionState}`);
+          if (pc.connectionState === 'connected') {
+            log('WebRTC接続が確立しました。');
+            startButton.textContent = '通話中';
+            startButton.classList.add('active-call');
+            startButton.disabled = true;
+            endButton.style.display = 'inline-block';
+            endButton.disabled = false;
+
+            // 接続確立後にプロンプト（指示）を送信
+             if (dataChannel && dataChannel.readyState === 'open') {
+                 sendSessionUpdate(userPrompt);
+             } else {
+                 // dataChannelが開くまで少し待つか、onopenハンドラで送信する
+                 const checkChannelOpen = setInterval(() => {
+                     if (dataChannel && dataChannel.readyState === 'open') {
+                         clearInterval(checkChannelOpen);
+                         sendSessionUpdate(userPrompt);
+                     }
+                 }, 100);
+                 // タイムアウト処理も追加するとより堅牢
+             }
+
+          } else if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
+             logError(`WebRTC接続が切断または失敗しました (${pc.connectionState})。クリーンアップを実行します。`);
+             endCallCleanup();
+          }
+        };
+
+        // --- 3. Local Audio ---
+        log('ローカル音声ストリームを取得中...');
+        if (localStream) localStream.getTracks().forEach(track => track.stop());
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+        log('ローカル音声ストリームを追加しました。');
+
+        // --- 4. Data Channel ---
+        dataChannel = pc.createDataChannel('oai-events');
+        dataChannel.onopen = () => {
+            log('データチャネルが開きました。');
+            // 接続状態が 'connected' になる前に開くことがあるので、
+            // プロンプト送信は onconnectionstatechange で行う方が確実かもしれない
+        };
+        dataChannel.onclose = () => log('データチャネルが閉じました。');
+        dataChannel.onerror = (error) => logError('データチャネルエラー:', error);
+        dataChannel.onmessage = handleServerEvent; // メッセージハンドラを設定
+
+        // --- 5. SDP Offer/Answer ---
+        log('SDPオファーを作成中...');
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        log('ローカルSDPを設定しました。');
+
+        const baseUrl = "https://api.openai.com/v1/realtime";
+        // 接続URLにはモデルやボイスを含めず、session.updateで設定する方が良い場合もある
+        const sdpResponse = await fetch(`${baseUrl}?model=${selectedModel}`, { // voiceは/sessionエンドポイントで設定済みの想定
+          method: "POST", body: offer.sdp,
+          headers: { Authorization: `Bearer ${EPHEMERAL_KEY}`, "Content-Type": "application/sdp" },
+        });
+
+        if (!sdpResponse.ok) {
+          const errorText = await sdpResponse.text();
+          throw new Error(`SDPアンサーの取得に失敗しました: ${sdpResponse.status} ${errorText}`);
+        }
+        const answerSDP = await sdpResponse.text();
+        log('SDPアンサーを受信しました。');
+        await pc.setRemoteDescription({ type: "answer", sdp: answerSDP });
+        log('リモートSDPを設定しました。接続確立を待機します...');
+
+      } catch (error) {
+        logError('通話開始処理中にエラーが発生しました:', error);
+        alert(`エラーが発生しました: ${error.message}`);
+        endCallCleanup();
+      }
+    }
+
+    // --- Function to send session update (e.g., instructions) ---
+    function sendSessionUpdate(instructions) {
+        if (!dataChannel || dataChannel.readyState !== 'open') {
+            logError('データチャネルが利用できません。セッション更新を送信できません。');
+            return;
+        }
+        try {
+            const event = {
+                type: "session.update",
+                session: {
+                    instructions: instructions
+                },
+            };
+            log('セッション更新（指示）を送信します:', event);
+            dataChannel.send(JSON.stringify(event));
+        } catch (error) {
+            logError('セッション更新イベントの送信に失敗しました:', error);
+        }
+    }
+
+
+    // --- Server Event Handler ---
+    function handleServerEvent(event) {
+        try {
+            const serverEvent = JSON.parse(event.data);
+            logEvent('Server', serverEvent); // 詳細ログ
+
+            switch (serverEvent.type) {
+                // --- User Speech Handling ---
+                case 'input_audio_buffer.speech_started':
+                    log('User speech started');
+                    userSpeakerIndicator.style.display = 'block';
+                    // 新しい発話用の <p> 要素を作成・追加し、参照を保持
+                    currentUserParagraph = document.createElement('p');
+                    currentUserParagraph.textContent = ''; // 初期内容は空
+                    userTranscriptContent.appendChild(currentUserParagraph);
+                    scrollToBottom(userTranscriptBox); // Box要素をスクロール
+                    break;
+                case 'input_audio_buffer.speech_stopped':
+                    log('User speech stopped');
+                    userSpeakerIndicator.style.display = 'none';
+                    break;
+
+                // ユーザーの文字起こし完了イベント
+                case 'conversation.item.input_audio_transcription.completed':
+                    if (serverEvent.transcript) {
+                        // speech_started が取れなかった場合などに備える
+                        if (!currentUserParagraph) {
+                            currentUserParagraph = document.createElement('p');
+                            currentUserParagraph.textContent = '';
+                            userTranscriptContent.appendChild(currentUserParagraph);
+                            log('Created new user paragraph for transcript completion (speech_started missed?).');
+                        }
+                        currentUserParagraph.textContent = serverEvent.transcript;
+                        scrollToBottom(userTranscriptBox); // Box要素をスクロール
+                    }
+                    break;
+
+                // ユーザーの文字起こし失敗イベント
+                case 'conversation.item.input_audio_transcription.failed':
+                    logError('ユーザーの音声文字起こしに失敗しました:', serverEvent);
+                    break;
+
+                // --- AI Response Handling ---
+                case 'response.created':
+                    // 要約応答の response.created は無視する
+                    if (serverEvent.response?.metadata?.topic === 'summary') {
+                        break;
+                    }
+                    log('AI response created');
+                    aiSpeakerIndicator.style.display = 'block';
+                    // 新しい応答用の <p> 要素を作成・追加し、参照を保持
+                    currentAiParagraph = document.createElement('p');
+                    currentAiParagraph.textContent = '';
+                    aiTranscriptContent.appendChild(currentAiParagraph);
+                    scrollToBottom(aiTranscriptBox); // Box要素をスクロール
+                    break;
+
+                // AIの音声文字起こしデルタ
+                case 'response.audio_transcript.delta':
+                    // 要約応答のテキストデルタは無視する
+                    if (serverEvent.response?.metadata?.topic === 'summary') {
+                        break;
+                    }
+                    if (serverEvent.delta) {
+                        // response.created で p が作られていない場合のフォールバック
+                        if (!currentAiParagraph) {
+                            log('AI response.created was missed? Creating paragraph now.');
+                            currentAiParagraph = document.createElement('p');
+                            currentAiParagraph.textContent = '';
+                            aiTranscriptContent.appendChild(currentAiParagraph);
+                            aiSpeakerIndicator.style.display = 'block'; // インジケータも表示
+                        }
+                        currentAiParagraph.textContent += serverEvent.delta;
+                        scrollToBottom(aiTranscriptBox); // Box要素をスクロール
+                    }
+                    break;
+
+                // --- Summary Handling & Response Completion ---
+                case 'response.done':
+                    log(`Response done received. Summary requested: ${summaryRequested}, Metadata: ${JSON.stringify(serverEvent.response?.metadata)}`);
+
+                    // ★★★ 要約リクエストへの応答かチェック ★★★
+                    if (summaryRequested && serverEvent.response?.metadata?.topic === 'summary') {
+                        log('Summary response received.');
+                        // output構造を確認: output[0].text または output[0].content[0].text など
+                        const outputItem = serverEvent.response?.output?.[0];
+                        let summaryText = "要約の取得に失敗しました。";
+                        if (outputItem?.text) {
+                            summaryText = outputItem.text;
+                        } else if (outputItem?.content?.[0]?.text) {
+                            summaryText = outputItem.content[0].text;
+                        } else if (typeof outputItem === 'string') { // まれに文字列直列の場合も？
+                            summaryText = outputItem;
+                        }
+                         log(`Raw summary output item: ${JSON.stringify(outputItem)}`);
+
+                        summaryContent.textContent = summaryText;
+                        summaryArea.style.display = 'block'; // 表示
+                        log(`Summary content set.`);
+                        scrollToBottom(summaryArea); // 要約エリアもスクロールする
+
+                        summaryRequested = false; // フラグ解除
+                        // ★★★ 要約受信後にクリーンアップ ★★★
+                        log('Summary received, cleaning up connection.');
+                        endCallCleanup();
+                    } else {
+                        // 通常の応答完了
+                        log('Normal AI response done.');
+                        aiSpeakerIndicator.style.display = 'none'; // 通常応答完了でインジケータ非表示
+                        currentAiParagraph = null; // AI応答段落参照をクリア
+                        // 必要ならユーザー段落もここで確定・クリア
+                        // currentUserParagraph = null;
+                    }
+                    break;
+
+                // --- Session & Other Events ---
+                case 'session.created':
+                    log('Session created:', serverEvent.session);
+                    break;
+                case 'session.updated':
+                    log('Session updated:', serverEvent.session);
+                    break;
+
+                // --- Error Handling ---
+                case 'error':
+                case 'invalid_request_error':
+                    logError('Server error event received:', serverEvent);
+                    const errorCode = serverEvent.code || 'UNKNOWN_CODE';
+                    const errorMsg = serverEvent.message || '不明なサーバーエラーが発生しました。';
+                    const fullErrorMsg = `サーバーエラー (${errorCode}): ${errorMsg}`;
+                    alert(fullErrorMsg); // ユーザーに通知
+
+                    const errorP = document.createElement('p');
+                    errorP.style.color = 'red';
+                    errorP.style.fontWeight = 'bold';
+                    errorP.textContent = `[エラー] ${errorMsg}`;
+                    // エラーはAI応答欄に表示する（または専用エリア）
+                    aiTranscriptContent.appendChild(errorP);
+                    scrollToBottom(aiTranscriptBox);
+
+                    // fatalエラーなどで接続が維持できない場合がある
+                    // 例: if (serverEvent.fatal || errorCode === 'session_expired' || ...)
+                    const isFatal = serverEvent.fatal || ['session_expired', 'internal_server_error', 'authentication_error'].includes(errorCode); // 例
+                    if (isFatal) {
+                        log('Fatal error detected, cleaning up.');
+                        endCallCleanup();
+                    }
+
+                    // 要約リクエスト中のエラーの場合、ボタンをリセット
+                    if (summaryRequested) {
+                       log('Error occurred during summary request.');
+                       summaryRequested = false;
+                       endButton.textContent = '通話終了';
+                       endButton.disabled = false; // リトライ可能にする
+                       // エラーによっては即時クリーンアップが必要な場合もある
+                       if (isFatal) endCallCleanup();
+                    }
+                    break;
+
+                 // 他のイベントタイプも必要に応じて処理
+                 default:
+                     logEvent('Server (Unhandled)', serverEvent); // 未処理イベントはログ出力
+                     break;
+            }
+        } catch (err) {
+            logError('Failed to parse or handle server message:', err);
+            console.log('Raw message data:', event.data); // エラー時の生データを表示
+        }
+    }
+
+    // --- End Call Initiator ---
+    async function endCall() {
+        log('通話終了処理（要約リクエスト）を開始します。');
+        if (!pc || !dataChannel || dataChannel.readyState !== 'open') {
+            log('接続が存在しないか、データチャネルが開いていません。クリーンアップのみ実行します。');
+            endCallCleanup();
+            return;
+        }
+        if (summaryRequested) {
+            log('既に要約リクエスト中です。');
+            return;
+        }
+
+        endButton.textContent = '要約生成中...';
+        endButton.disabled = true;
+
+        try {
+            const summaryPrompt = `以下の項目について要約してください：
+
+1. 会話の概要
+2. 主な話題やキーポイント
+3. 重要な決定事項や合意事項
+4. 次のステップやアクションアイテム
+5. ヒヤリング項目（改善点や気づき）`;
+            const event = {
+              type: "response.create",
+              response: {
+                conversation: "none", // セッション履歴外で生成
+                metadata: { topic: "summary" }, // ★★★ 識別用メタデータ ★★★
+                modalities: [ "text" ], // テキストのみ要求
+                instructions: summaryPrompt, // 要約指示
+                // input: [], // オプション: セッション履歴を無視して指示だけで生成させる場合
+              },
+              // event_id: "summary_request_" + Date.now() // オプション: エラー追跡用
+            };
+            log('要約リクエストを送信します:', event);
+            dataChannel.send(JSON.stringify(event));
+            summaryRequested = true;
+        } catch (error) {
+            logError('要約リクエストの送信に失敗しました:', error);
+            alert('要約リクエストの送信に失敗しました。');
+            endButton.textContent = '通話終了';
+            endButton.disabled = false; // リトライ可能にする
+            summaryRequested = false;
+            // 送信失敗時は即クリーンアップするかどうかは要件による
+            // endCallCleanup();
+        }
+        // ★★★ 注意: 要約リクエスト送信後、すぐにクリーンアップしない ★★★
+        // `response.done` イベントで要約を受信するまで待機する
+    }
+
+
+    // --- Connection Cleanup Function ---
+    function endCallCleanup() {
+      log('接続のクリーンアップを開始します。');
+      if (dataChannel) {
+        try {
+             log(`データチャネルの状態: ${dataChannel.readyState}`);
+             if (dataChannel.readyState === 'open') {
+                 dataChannel.close();
+                 log('データチャネルを閉じました。');
+             }
+        } catch (e) { logError('データチャネルクローズエラー:', e); }
+        dataChannel = null;
+      }
+      if (pc) {
+        try {
+            log(`PeerConnectionの接続状態: ${pc.connectionState}, ICE状態: ${pc.iceConnectionState}`);
+            pc.close();
+            log('PeerConnectionを閉じました。');
+         } catch (e) { logError('PeerConnectionクローズエラー:', e); }
+        pc = null;
+      }
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        localStream = null;
+        log('ローカルストリームを停止しました。');
+      }
+      if(remoteAudio.srcObject){
+        remoteAudio.pause();
+        remoteAudio.srcObject = null; // srcObjectをnullに設定
+        log('リモートオーディオを停止し、ソースをクリアしました。');
+      }
+
+      // Reset UI States
+      startButton.textContent = '開始';
+      startButton.classList.remove('active-call');
+      startButton.disabled = false;
+      endButton.style.display = 'none';
+      endButton.textContent = '通話終了';
+      endButton.disabled = true; // 開始ボタンが押されるまで無効
+      userSpeakerIndicator.style.display = 'none';
+      aiSpeakerIndicator.style.display = 'none';
+      currentUserParagraph = null; // 参照クリア
+      currentAiParagraph = null;  // 参照クリア
+      summaryRequested = false; // フラグリセット
+
+      log('クリーンアップが完了しました。');
+    }
+
+    // --- Event Listeners ---
+    startButton.addEventListener('click', startCall);
+    endButton.addEventListener('click', endCall); // 要約リクエストをトリガー
+
+    window.addEventListener('beforeunload', (event) => {
+      // 通話中にページを離れようとした場合
+      if (pc && pc.connectionState !== 'closed' && pc.connectionState !== 'failed') {
+        log('ページ離脱前にクリーンアップを実行します。');
+        // 即時クリーンアップ（要約などは行わない）
+        // 非同期処理は間に合わない可能性があるので同期的にできることを行う
+        if (dataChannel && dataChannel.readyState === 'open') dataChannel.close();
+        if (pc) pc.close();
+        if (localStream) localStream.getTracks().forEach(track => track.stop());
+        // ユーザーに確認メッセージを表示することもできる (ただし、最近のブラウザでは制限あり)
+        // event.preventDefault();
+        // event.returnValue = '通話中にページを離れようとしています。よろしいですか？';
+      }
+    });
+
+  </script>
+</body>
+</html>
