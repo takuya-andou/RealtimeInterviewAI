@@ -18,6 +18,24 @@ const PORT = process.env.PORT || 3000;
 // JSONボディをパースできるようにする
 app.use(express.json());
 
+// --- Basic認証 ---
+// 環境変数で認証情報が設定されている場合のみ適用
+if (process.env.DEFAULT_AUTH_USER && process.env.DEFAULT_AUTH_PASS) {
+  console.log("Basic認証を有効にします。");
+  app.use(basicAuth({
+    users: {
+      [process.env.DEFAULT_AUTH_USER]: process.env.DEFAULT_AUTH_PASS
+    },
+    challenge: true, // 認証ダイアログを表示
+    unauthorizedResponse: () => 'Authentication required.' // 認証失敗時のメッセージ
+  }));
+} else {
+    console.log("Basic認証は無効です。DEFAULT_AUTH_USER と DEFAULT_AUTH_PASS が設定されていません。");
+}
+
+// 静的ファイルを提供するミドルウェア (publicフォルダ)
+app.use(express.static(path.join(__dirname, 'public')));
+
 // エフェメラルキーを取得するエンドポイント
 app.post('/session', async (req, res) => {
   try {
@@ -61,11 +79,6 @@ app.post('/session', async (req, res) => {
     res.status(500).send({ error: 'Internal Server Error' });
   }
 });
-
-// 静的ファイルを提供するミドルウェア (publicフォルダ)
-// Basic認証の前に置くことで、認証なしで静的ファイルにアクセス可能にする
-// 必要に応じて認証の後ろに移動してください
-app.use(express.static(path.join(__dirname, 'public')));
 
 // ルートパス ('/') で template.html を提供
 app.get('/', (req, res) => {
@@ -139,21 +152,6 @@ app.post('/summarize', async (req, res) => {
     res.status(500).json({ error: error.message || 'Internal Server Error during summarization.' });
   }
 });
-
-// --- Basic認証 ---
-// 環境変数で認証情報が設定されている場合のみ適用
-if (process.env.DEFAULT_AUTH_USER && process.env.DEFAULT_AUTH_PASS) {
-  console.log("Basic認証を有効にします。");
-  app.use(basicAuth({
-    users: {
-      [process.env.DEFAULT_AUTH_USER]: process.env.DEFAULT_AUTH_PASS
-    },
-    challenge: true, // 認証ダイアログを表示
-    unauthorizedResponse: () => 'Authentication required.' // 認証失敗時のメッセージ
-  }));
-} else {
-    console.log("Basic認証は無効です。DEFAULT_AUTH_USER と DEFAULT_AUTH_PASS が設定されていません。");
-}
 
 // サーバー起動
 app.listen(PORT, () => {

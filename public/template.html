@@ -234,15 +234,12 @@
     function logEvent(direction, eventData) { console.log(`[${direction}] Event: ${eventData.type}`, eventData); } // 詳細ログ
 
     // --- UI Update Functions ---
-    // 指定された要素のスクロールを一番下に移動する関数
-    function scrollToBottom(element) {
-        // スクロール可能な親要素をスクロールさせる
-        if (element && element.parentElement) {
-             // 少し待ってからスクロールすると、要素のレンダリング後に実行されやすい
-             setTimeout(() => {
-                element.parentElement.scrollTop = element.parentElement.scrollHeight;
-             }, 0);
-        }
+    // conversationArea を一番下にスクロールする関数
+    function scrollToBottom() {
+        // 少し待ってからスクロールすると、要素のレンダリング後に実行されやすい
+        setTimeout(() => {
+            conversationArea.scrollTop = conversationArea.scrollHeight;
+        }, 0);
     }
 
     // 文字起こしと要約エリアをクリアする関数
@@ -440,7 +437,7 @@
                             log('Created new user message.');
                         }
                         lastSpeaker = 'user'; // Set last speaker to user
-                        scrollToBottom(conversationArea);
+                        scrollToBottom(); // Scroll the area
                     } else {
                         log('Ignored empty user transcript.');
                     }
@@ -488,7 +485,7 @@
                             log('Appended AI message bubble to DOM.');
                         }
                         currentAiParagraph.textContent += aiDelta;
-                        scrollToBottom(conversationArea); // Scroll when content is added
+                        scrollToBottom(); // Scroll the area
                     } else {
                         log('Ignored empty AI delta.');
                     }
@@ -629,7 +626,7 @@
             // 3. Display summary
             summaryContent.textContent = result.summary || '要約の取得に失敗しました。';
             summaryArea.style.display = 'block';
-            scrollToBottom(summaryArea); // Scroll to show summary
+            // No need to scroll summary area automatically, user can scroll if needed
             log('要約を表示しました。');
 
         } catch (error) {

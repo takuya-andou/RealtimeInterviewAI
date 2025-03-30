@@ -1,0 +1,2 @@
+# openai_realtime_conversation
+OpenAIのリアルタイム通話の試行錯誤用リポジトリ
