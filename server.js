@@ -73,6 +73,72 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'template.html'));
 });
 
+// --- New Summarization Endpoint ---
+app.post('/summarize', async (req, res) => {
+  const { transcript, hearingItems } = req.body; // Added hearingItems
+
+  if (!transcript) {
+    return res.status(400).json({ error: 'Transcript is required.' });
+  }
+  // hearingItems are optional, but we'll use a default prompt part if missing
+  if (!process.env.OPENAI_API_KEY) {
+    console.error('Error: OPENAI_API_KEY is not set.');
+    return res.status(500).json({ error: 'Server configuration error.' });
+  }
+
+  console.log('Summarization request received.');
+  // console.log('Hearing Items:', hearingItems); // Optional: Log received items
+
+  try {
+    // Construct prompt using hearing items if provided
+    let systemPrompt = 'You are a helpful assistant that summarizes conversations.';
+    let userPrompt = `以下の会話を要約してください:\n\n${transcript}`;
+    console.log('Hearing Items:', hearingItems);
+    console.log('Transcript:', transcript);
+    if (hearingItems) {
+      systemPrompt = `You are an assistant that summarizes conversations, focusing on extracting information related to specific items.`;
+      userPrompt = `# 指示:以下の会話内容について、下記のヒアリング項目に沿って情報を抽出してください。\n\n# 注意:前置きなどは不要です。ヒヤリング項目だけを抽出してください。\n文字起こしは不完全で欠損している可能性があります。\n\n# ヒアリング項目:\n${hearingItems}\n\n# 会話内容:\n${transcript}`;
+    }
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o', // Use gpt-4o model
+        messages: [
+          { role: 'system', content: systemPrompt }, // Use dynamic system prompt
+          { role: 'user', content: userPrompt } // Use dynamic user prompt
+        ],
+        max_tokens: 500, // Adjust as needed
+        temperature: 0.5, // Adjust as needed
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('OpenAI Summarization API Error:', errorData);
+      throw new Error(`OpenAI API Error: ${errorData.error?.message || response.statusText}`);
+    }
+
+    const data = await response.json();
+    const summaryText = data.choices?.[0]?.message?.content?.trim();
+
+    if (!summaryText) {
+      console.error('No summary content received from OpenAI:', data);
+      throw new Error('Failed to extract summary from OpenAI response.');
+    }
+
+    console.log('Summarization successful.');
+    res.json({ summary: summaryText });
+
+  } catch (error) {
+    console.error('Error during summarization:', error);
+    res.status(500).json({ error: error.message || 'Internal Server Error during summarization.' });
+  }
+});
 
 // --- Basic認証 ---
 // 環境変数で認証情報が設定されている場合のみ適用
