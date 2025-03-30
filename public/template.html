@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>AI通話サービス</title>
+  <title>カジュアル面談AI</title>
   <style>
     /* (既存のスタイルはそのまま) */
     body {
@@ -104,7 +104,7 @@
 <body>
 
   <div class="container">
-    <h1>AI通話サービス</h1>
+    <h1>カジュアル面談AI</h1>
 
     <button id="startCall">開始</button>
     <button id="endCall" style="display: none;">通話終了</button>
@@ -216,9 +216,9 @@
     let pc; // RTCPeerConnection
     let dataChannel;
     let localStream;
-    // Removed summaryRequested flag
     let currentUserParagraph = null; // 現在のユーザー発話用 <p> 要素
     let currentAiParagraph = null;   // 現在のAI応答用 <p> 要素
+    let lastSpeaker = null; // Track the last speaker ('user' or 'ai')
 
 
     // --- Initialization ---
@@ -415,32 +415,34 @@
                 // --- User Speech Handling ---
                 case 'input_audio_buffer.speech_started':
                     log('User speech started');
-                    // Removed speaker indicator display
-                    // 新しい発話用の <p> 要素を作成・追加し、参照を保持
-                    currentUserParagraph = document.createElement('p');
-                    currentUserParagraph.className = 'message user-message'; // Added class
-                    currentUserParagraph.textContent = ''; // 初期内容は空
-                    conversationArea.appendChild(currentUserParagraph); // Updated container
-                    scrollToBottom(conversationArea); // Updated container
+                    // No action needed here now
                     break;
                 case 'input_audio_buffer.speech_stopped':
                     log('User speech stopped');
-                    // Removed speaker indicator hide
+                    // No action needed here now
                     break;
 
                 // ユーザーの文字起こし完了イベント
                 case 'conversation.item.input_audio_transcription.completed':
-                    if (serverEvent.transcript) {
-                        // speech_started が取れなかった場合などに備える
-                        if (!currentUserParagraph) {
+                    const userTranscript = serverEvent.transcript?.trim();
+                    if (userTranscript) { // Only process if transcript is not empty/whitespace
+                        // Check if the last speaker was also the user and the paragraph exists
+                        if (lastSpeaker === 'user' && currentUserParagraph && conversationArea.contains(currentUserParagraph)) {
+                            // Append to existing user message bubble
+                            currentUserParagraph.textContent += ' ' + userTranscript;
+                            log('Appended to existing user message.');
+                        } else {
+                            // Create a new user message bubble
                             currentUserParagraph = document.createElement('p');
-                            currentUserParagraph.className = 'message user-message'; // Added class
-                            currentUserParagraph.textContent = '';
-                            conversationArea.appendChild(currentUserParagraph); // Updated container
-                            log('Created new user paragraph for transcript completion (speech_started missed?).');
+                            currentUserParagraph.className = 'message user-message';
+                            currentUserParagraph.textContent = userTranscript;
+                            conversationArea.appendChild(currentUserParagraph);
+                            log('Created new user message.');
                         }
-                        currentUserParagraph.textContent = serverEvent.transcript;
-                        scrollToBottom(conversationArea); // Updated container
+                        lastSpeaker = 'user'; // Set last speaker to user
+                        scrollToBottom(conversationArea);
+                    } else {
+                        log('Ignored empty user transcript.');
                     }
                     break;
 
@@ -456,13 +458,11 @@
                         break;
                     }
                     log('AI response created');
-                    // Removed speaker indicator display
-                    // 新しい応答用の <p> 要素を作成・追加し、参照を保持
+                    // Create the paragraph element but DON'T append yet
                     currentAiParagraph = document.createElement('p');
-                    currentAiParagraph.className = 'message ai-message'; // Added class
+                    currentAiParagraph.className = 'message ai-message';
                     currentAiParagraph.textContent = '';
-                    conversationArea.appendChild(currentAiParagraph); // Updated container
-                    scrollToBottom(conversationArea); // Updated container
+                    lastSpeaker = 'ai'; // Set last speaker to AI
                     break;
 
                 // AIの音声文字起こしデルタ
@@ -471,31 +471,43 @@
                     if (serverEvent.response?.metadata?.topic === 'summary') {
                         break;
                     }
-                    if (serverEvent.delta) {
-                        // response.created で p が作られていない場合のフォールバック
+                    const aiDelta = serverEvent.delta;
+                    if (aiDelta && aiDelta.trim()) { // Only process if delta is not empty/whitespace
+                        // Ensure paragraph exists
                         if (!currentAiParagraph) {
+                             // This case should ideally not happen if response.created is always received first
                             log('AI response.created was missed? Creating paragraph now.');
                             currentAiParagraph = document.createElement('p');
-                            currentAiParagraph.className = 'message ai-message'; // Added class
+                            currentAiParagraph.className = 'message ai-message';
                             currentAiParagraph.textContent = '';
-                            conversationArea.appendChild(currentAiParagraph); // Updated container
-                            // Removed speaker indicator display
+                            lastSpeaker = 'ai'; // Set speaker state if created here
                         }
-                        currentAiParagraph.textContent += serverEvent.delta;
-                        scrollToBottom(conversationArea); // Updated container
+                        // Append to DOM if it's not already there
+                        if (!conversationArea.contains(currentAiParagraph)) {
+                            conversationArea.appendChild(currentAiParagraph);
+                            log('Appended AI message bubble to DOM.');
+                        }
+                        currentAiParagraph.textContent += aiDelta;
+                        scrollToBottom(conversationArea); // Scroll when content is added
+                    } else {
+                        log('Ignored empty AI delta.');
                     }
                     break;
 
                 // --- Summary Handling & Response Completion ---
                 case 'response.done':
-                    log(`Response done received. Summary requested: ${summaryRequested}, Metadata: ${JSON.stringify(serverEvent.response?.metadata)}`);
+                    log(`Response done received. Metadata: ${JSON.stringify(serverEvent.response?.metadata)}`);
 
-                    // 通常の応答完了 (Old summary logic removed)
+                    // Check if the completed AI paragraph exists and is empty, then remove it
+                    if (currentAiParagraph && conversationArea.contains(currentAiParagraph) && !currentAiParagraph.textContent.trim()) {
+                        log('Removing empty AI message bubble.');
+                        currentAiParagraph.remove();
+                    }
+
+                    // Reset current AI paragraph reference ONLY
+                    currentAiParagraph = null;
+                    // lastSpeaker state remains 'ai' until the user speaks again
                     log('Normal AI response done.');
-                    // Removed speaker indicator hide
-                    currentAiParagraph = null; // AI応答段落参照をクリア
-                    // 必要ならユーザー段落もここで確定・クリア
-                    currentUserParagraph = null; // Also clear user paragraph reference here
                     break;
 
                 // --- Session & Other Events ---
@@ -643,9 +655,10 @@
       endButton.textContent = '通話終了';
       endButton.disabled = true;
       // Removed summarizeButton display logic
-      // summaryArea display is handled by endCall/requestSummary
+      // summaryArea display is handled by endCall
       currentUserParagraph = null;
       currentAiParagraph = null;
+      lastSpeaker = null; // Reset speaker state
 
       log('UIクリーンアップが完了しました。');
     }

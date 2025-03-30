@@ -97,7 +97,7 @@ app.post('/summarize', async (req, res) => {
     console.log('Transcript:', transcript);
     if (hearingItems) {
       systemPrompt = `You are an assistant that summarizes conversations, focusing on extracting information related to specific items.`;
-      userPrompt = `# 指示:以下の会話内容について、下記のヒアリング項目に沿って情報を抽出してください。\n\n# 注意:前置きなどは不要です。ヒヤリング項目だけを抽出してください。\n文字起こしは不完全で欠損している可能性があります。\n\n# ヒアリング項目:\n${hearingItems}\n\n# 会話内容:\n${transcript}`;
+      userPrompt = `# 指示:以下の会話内容について、下記のヒアリング項目に沿って情報を抽出してください。\n\n# 注意:前置きなどは不要です。ヒヤリング項目だけを抽出してください。\n文字起こしは不完全で欠損している可能性があります。\n文字起こしの順番は会話の順番に沿っているとは限らず前後していることが多いです。応答を見て会話の流れを読み取ってください。\n\n# ヒアリング項目:\n${hearingItems}\n\n# 会話内容:\n${transcript}`;
     }
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
